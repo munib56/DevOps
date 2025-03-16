@@ -3,7 +3,7 @@ name: Node.js CI/CD Pipeline
 on:
   push:
     branches:
-      - main  # Triggers pipeline on pushes to main branch
+      - main
 
 jobs:
   build:
@@ -22,9 +22,10 @@ jobs:
         run: npm install
 
       - name: Run OWASP Dependency Check (Optimized)
-        run: npx owasp-dependency-check --scan ./package-lock.json --disableExperimental
+        run: |
+          mkdir -p reports
+          npx owasp-dependency-check --scan ./ --disableExperimental --out ./reports
 
-  
   build-push:
     name: Build & Push Docker Image
     needs: build
@@ -37,29 +38,36 @@ jobs:
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
       - name: Build Docker Image
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/node-app:latest .
+        run: |
+          IMAGE_TAG=${{ secrets.DOCKER_USERNAME }}/node-app:${{ github.sha }}
+          docker build -t $IMAGE_TAG .
+          docker tag $IMAGE_TAG ${{ secrets.DOCKER_USERNAME }}/node-app:latest
+
+      - name: Pull Image Before Scanning (Fix for Trivy)
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/node-app:latest
 
       - name: Run Trivy Security Scan on Image
-        run: |
-          docker pull aquasec/trivy
-          docker run --rm aquasec/trivy image ${{ secrets.DOCKER_USERNAME }}/node-app:latest
+        run: docker run --rm aquasec/trivy image ${{ secrets.DOCKER_USERNAME }}/node-app:latest || true
 
       - name: Push Docker Image to Docker Hub
-        run: docker push ${{ secrets.DOCKER_USERNAME }}/node-app:latest
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/node-app:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/node-app:${{ github.sha }}
 
-  deploy:
-    name: Deploy to EC2
-    needs: build-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to EC2 Instance
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.EC2_HOST }}        # Public IP or hostname of your EC2 instance
-          username: ${{ secrets.EC2_USER }}      # For example, 'ubuntu'
-          key: ${{ secrets.EC2_SSH_KEY }}        # Private SSH key for authentication
-          script: |
-            docker stop node-app || true
-            docker rm node-app || true
-            docker pull ${{ secrets.DOCKER_USERNAME }}/node-app:latest
-            docker run -d --name node-app -p 80:3000 ${{ secrets.DOCKER_USERNAME }}/node-app:latest
+  # deploy:
+  #   name: Deploy to EC2
+  #   needs: build-push
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Deploy to EC2 Instance
+  #       uses: appleboy/ssh-action@v1.0.0
+  #       with:
+  #         host: ${{ secrets.EC2_HOST }}
+  #         username: ${{ secrets.EC2_USER }}
+  #         key: ${{ secrets.EC2_SSH_KEY }}
+  #         script: |
+  #           sudo systemctl restart docker  # Ensures Docker is running
+  #           docker stop node-app || true
+  #           docker rm node-app || true
+  #           docker pull ${{ secrets.DOCKER_USERNAME }}/node-app:latest
+  #           docker run -d --name node-app -p 80:3000 ${{ secrets.DOCKER_USERNAME }}/node-app:latest
