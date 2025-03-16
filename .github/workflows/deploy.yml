@@ -26,53 +26,47 @@ jobs:
           mkdir -p reports
           npx owasp-dependency-check --scan ./ --disableExperimental --out ./reports
 
-    build-push:
+  build-push:
     name: Build & Push Docker Image
     needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
-  
+
       - name: Log in to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-  
+
       - name: Build and Tag Docker Image
         run: |
           IMAGE_TAG=${{ secrets.DOCKER_USERNAME }}/node-app:${{ github.sha }}
           docker build -t $IMAGE_TAG .
           docker tag $IMAGE_TAG ${{ secrets.DOCKER_USERNAME }}/node-app:latest
-  
+
       - name: Push Docker Image to Docker Hub
         run: |
           docker push ${{ secrets.DOCKER_USERNAME }}/node-app:${{ github.sha }}
           docker push ${{ secrets.DOCKER_USERNAME }}/node-app:latest
-  
-      - name: Verify Image Exists
-        run: docker pull ${{ secrets.DOCKER_USERNAME }}/node-app:latest
 
-      - name: Run Trivy Security Scan on Image
-        run: docker run --rm aquasec/trivy image ${{ secrets.DOCKER_USERNAME }}/node-app:latest || true
-
-      - name: Push Docker Image to Docker Hub
+      - name: Run Grype Security Scan on Image
         run: |
-          docker push ${{ secrets.DOCKER_USERNAME }}/node-app:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/node-app:${{ github.sha }}
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh
+          grype ${{ secrets.DOCKER_USERNAME }}/node-app:latest || true
 
-  # deploy:
-  #   name: Deploy to EC2
-  #   needs: build-push
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Deploy to EC2 Instance
-  #       uses: appleboy/ssh-action@v1.0.0
-  #       with:
-  #         host: ${{ secrets.EC2_HOST }}
-  #         username: ${{ secrets.EC2_USER }}
-  #         key: ${{ secrets.EC2_SSH_KEY }}
-  #         script: |
-  #           sudo systemctl restart docker  # Ensures Docker is running
-  #           docker stop node-app || true
-  #           docker rm node-app || true
-  #           docker pull ${{ secrets.DOCKER_USERNAME }}/node-app:latest
-  #           docker run -d --name node-app -p 80:3000 ${{ secrets.DOCKER_USERNAME }}/node-app:latest
+  deploy:
+    name: Deploy to EC2
+    needs: build-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2 Instance
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo systemctl restart docker  # Ensures Docker is running
+            docker stop node-app || true
+            docker rm node-app || true
+            docker pull ${{ secrets.DOCKER_USERNAME }}/node-app:latest
+            docker run -d --name node-app -p 80:3000 ${{ secrets.DOCKER_USERNAME }}/node-app:latest
