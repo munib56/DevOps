@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    name: Build & Vulnerability Scan
+    name: Build & Vulnerability Scan     #done
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
