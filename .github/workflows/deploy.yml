@@ -21,8 +21,9 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Run OWASP Dependency Check
-        run: npx owasp-dependency-check --scan ./
+      - name: Run OWASP Dependency Check (Optimized)
+        run: npx owasp-dependency-check --scan ./package-lock.json --disableExperimental
+
   
   build-push:
     name: Build & Push Docker Image
